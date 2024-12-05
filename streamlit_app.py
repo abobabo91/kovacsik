@@ -14,6 +14,3 @@ df = conn.read("success_new/embeddings.csv", input_format="csv", ttl=600)
 
 df
 
-
-
-
