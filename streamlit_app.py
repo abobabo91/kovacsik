@@ -29,6 +29,8 @@ st.title('Startup finder')
 
 st.write('Hi guys!')
 
+investment_thesis = 'asd asd'
+
 user_input = st.text_input('Enter your query here:')
 
 
