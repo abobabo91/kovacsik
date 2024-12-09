@@ -63,7 +63,7 @@ SELECT
   full_table.dealroom_index, 
   full_table.NAME,
   full_table.WEBSITE,
-  full_table.gpt description,
+  full_table.'gpt description',
   distances.cosine_distance
 FROM 
     `ccnr-success.success_new.merged` as full_table 
