@@ -63,7 +63,7 @@ SELECT
   full_table.dealroom_index, 
   full_table.NAME,
   full_table.WEBSITE,
-  full_table.'gpt description',
+  full_table.gpt_description,
   distances.cosine_distance
 FROM 
     `ccnr-success.success_new.merged` as full_table 
@@ -72,12 +72,12 @@ FROM
     on full_table.dealroom_index = distances.dealroom_index
 ORDER BY 
   distances.cosine_distance DESC
-LIMIT 10;"""
+LIMIT 25;"""
 
 
 rows = run_query(vector_query)
 
-indexes = [[x['dealroom_index'],x['NAME'],x['cosine_distance'],x['WEBSITE'],x['gpt description'] ] for x in rows]
+indexes = [[x['dealroom_index'],x['NAME'],x['cosine_distance'],x['WEBSITE'],x['gpt_description'] ] for x in rows]
 
 indexes
 
