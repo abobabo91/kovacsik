@@ -367,29 +367,27 @@ INPUT ITEMS FORMAT:
 
     if st.button("🏁 Run Rerank (Based on the not enhanced results)"):
         try:
-            base_df = st.session_state.df_original.copy()
-            thesis_str = user_input  # <- use the ORIGINAL thesis
-            reranked = rerank_by_description(
-                df=base_df,
-                thesis=thesis_str,
-                prompt_text=rerank_prompt,
-                model_name=model_choice
-            )
-            st.session_state.df_reranked = reranked
-
-            st.success("Reordered by description relevance (original query).")
+            with st.spinner("🔄 Reranking startups... please wait"):
+                base_df = st.session_state.df_original.copy()
+                thesis_str = user_input  # or st.session_state.enhanced_query if using enhanced
+                reranked = rerank_by_description(
+                    df=base_df,
+                    thesis=thesis_str,
+                    prompt_text=rerank_prompt,
+                    model_name=model_choice
+                )
+                st.session_state.df_reranked = reranked
+    
+            st.success("✅ Reordered by description relevance.")
             cols_in_df = reranked.columns
             display_cols = []
-            # keep rank columns if present (for context)
             if "original_rank" in cols_in_df:
                 display_cols.append("original_rank")
-            # show selected columns
             display_cols += [c for c in all_columns if c in cols_in_df and c in st.session_state.selected_cols]
             if "cosine_distance" in cols_in_df:
                 display_cols.append("cosine_distance")
-
+    
             st.dataframe(reranked[display_cols], use_container_width=True)
-
+    
         except Exception as e:
             st.error(f"Reranking failed: {e}")
-
