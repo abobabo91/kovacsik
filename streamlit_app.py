@@ -5,6 +5,25 @@ from google.cloud import bigquery
 import openai
 from openai import OpenAI
 
+
+#IDEAS:
+# - A VEGEN A TOP 50 RESULTOT UJRA VISSZAADNI ES MEGKERNI HOGY RANGSOROLJA UJRA PRECIZEN A QUERYRE
+# - AZ ELEJEN ATIRATNI A QUERYT ES AZT KERESNI
+# - VALAHOGY AZ ERTELMET ATADNI A QUERYNEK ÉS NEM CSAK A SZAVAK ÖSSZESSEGET, 
+#ENNEK UTANANEZNI, HOGY EGYALTALN KEPES E A VEKTORIZALAS ILYENRE, HOGY MUKODIK PL AZ OPENAI VEKTORIZALASA, STB
+
+
+#* understand more in depth how 'smart' this is on the spectrum of simple keyword search to full context understanding
+#* could be worth adding a chatgpt boost layer right after query submission, so instead of searching raw words the system enhances the query to maximize output quality. this would help when the search is vague, too broad, or too narrow
+#* work on reducing irrelevant results that contain the right words but in the wrong context. a chatgpt check or ranking round at the end could help
+#* add filtering
+#* the current version feels a bit mixed between startup and thesis. if we wanna give this to target customers soon we should only include value-add startup-focused stuff. i.e. pick which columns are useful, rename them, etc.
+#* I'll think about a more fitting line than "enter your investment thesis and discover matching startups" - this is more VC lingo
+#* make sure every company has a description, there are some gaps now where it's missing on tracxn
+#* change 'cosine_distance' to something catchy like match score (%). could even distort it a bit so scores are higher and matches feel stronger
+
+
+
 # --------------------
 # SETUP
 # --------------------
