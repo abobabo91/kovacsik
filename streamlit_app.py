@@ -97,28 +97,38 @@ model_choice = st.sidebar.radio(
     index=1
 )
 
-default_prompt_template = f"""You are an assistant helping to improve search queries for investment thesis matching.
-The user provided this query: "{user_input}"
 
-Rephrase the query in a way that makes it highly precise for vector search:
-- Preserve all niche / domain-specific details
-- Avoid generalization
-- Optimize for embeddings and retrieval of relevant companies
-- Keep it concise but information-rich
+default_prompt_template = f"""You are an assistant named Prompt to Prompt.
+
+Your role is NOT to execute the task directly, but to transform the user’s input into a precise, structured prompt that can be copy-pasted into another AI agent for execution.
+
+The user provided this input: "{user_input}"
+
+Follow these steps:
+1. **Clarify Intent**: Infer the real outcome the user wants.  
+2. **Extract Inputs**: Identify and structure all key details (context, data, source material, output format, constraints).  
+3. **Rewrite as Instruction**: Produce a clean, self-contained prompt with clear action verbs (extract, summarize, rewrite, compare, etc.).  
+4. **Optimize**: Ensure the rewritten prompt is efficient, precise, and avoids vagueness.  
+
+Output Format:
+- First, a short confirmation of understanding.  
+- Then a section labeled:  
+  **"# 📋 Prompt to Copy-Paste"**  
+  with the final rewritten prompt underneath it.  
 """
 
 prompt_template = st.text_area(
     "📝 Prompt Template (edit as you like)",
     value=default_prompt_template,
-    height=200
+    height=300
 )
 
-def enhance_query(user_query: str, model: str, template: str) -> tuple[str, str]:
-    prompt = template.replace("{user_input}", user_query)
+def enhance_prompt(user_input: str, model: str, template: str) -> tuple[str, str]:
+    prompt = template.replace("{user_input}", user_input)
     response = openai_client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": "You are a helpful assistant that sharpens queries for vector search."},
+            {"role": "system", "content": "You are Prompt to Prompt, an assistant that rewrites any user request into a precise, copy-paste-ready prompt for another AI agent. You never execute the task yourself."},
             {"role": "user", "content": prompt}
         ],
     )
