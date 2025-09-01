@@ -1,0 +1,7 @@
+* add filtering
+* the current version feels a bit mixed between startup and thesis. if we wanna give this to target customers soon we should only include value-add startup-focused stuff. i.e. pick which columns are useful, rename them, etc.
+* I'll think about a more fitting line than "enter your investment thesis and discover matching startups" - this is more VC lingo
+* make sure every company has a description, there are some gaps now where it's missing on tracxn
+* change 'cosine_distance' to something catchy like match score (%). could even distort it a bit so scores are higher and matches feel stronger
+
+
