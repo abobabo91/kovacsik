@@ -30,6 +30,20 @@ def run_query(query: str):
     rows_raw = query_job.result()
     return [dict(row) for row in rows_raw]
 
+
+
+def enhance_query(user_query: str, model: str, template: str) -> tuple[str, str]:
+    prompt = template.replace("{user_input}", user_query)
+    response = openai_client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant that sharpens queries for vector search."},
+            {"role": "user", "content": prompt}
+        ],
+    )
+    return prompt, response.choices[0].message.content.strip()
+
+
 # --------------------
 # COLUMN ORDER LIST
 # --------------------
@@ -97,42 +111,41 @@ model_choice = st.sidebar.radio(
     index=1
 )
 
+default_prompt_template = f"""You are an assistant helping to improve search queries for investment thesis matching.
+The user provided this query: "{user_input}"
 
-default_prompt_template = f"""You are an assistant named Prompt to Prompt.
-
-Your role is NOT to execute the task directly, but to transform the user’s input into a precise, structured prompt that can be copy-pasted into another AI agent for execution.
-
-The user provided this input: "{user_input}"
-
-Follow these steps:
-1. **Clarify Intent**: Infer the real outcome the user wants.  
-2. **Extract Inputs**: Identify and structure all key details (context, data, source material, output format, constraints).  
-3. **Rewrite as Instruction**: Produce a clean, self-contained prompt with clear action verbs (extract, summarize, rewrite, compare, etc.).  
-4. **Optimize**: Ensure the rewritten prompt is efficient, precise, and avoids vagueness.  
-
-Output Format:
-- First, a short confirmation of understanding.  
-- Then a section labeled:  
-  **"# 📋 Prompt to Copy-Paste"**  
-  with the final rewritten prompt underneath it.  
+Rephrase the query in a way that makes it highly precise for vector search:
+- Preserve all niche / domain-specific details
+- Avoid generalization
+- Optimize for embeddings and retrieval of relevant companies
+- Keep it concise but information-rich
 """
 
 prompt_template = st.text_area(
     "📝 Prompt Template (edit as you like)",
     value=default_prompt_template,
-    height=300
+    height=200
 )
 
-def enhance_prompt(user_input: str, model: str, template: str) -> tuple[str, str]:
-    prompt = template.replace("{user_input}", user_input)
-    response = openai_client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": "You are Prompt to Prompt, an assistant that rewrites any user request into a precise, copy-paste-ready prompt for another AI agent. You never execute the task yourself."},
-            {"role": "user", "content": prompt}
-        ],
+
+# --------------------
+# BUTTON: Enhance query only (unchanged trigger)
+# --------------------
+if st.button("✨ Create Enhanced Query"):
+    gpt_prompt, enhanced_query = enhance_query(user_input, model_choice, prompt_template)
+    st.session_state.enhanced_query = enhanced_query
+
+# Always show (and allow editing) if we have one
+if "enhanced_query" in st.session_state:
+    st.subheader("Enhanced Query (editable)")
+    st.session_state.enhanced_query = st.text_area(
+        "Edit enhanced query as needed",
+        value=st.session_state.enhanced_query,
+        height=140,
+        key="enhanced_query_edit"
     )
-    return prompt, response.choices[0].message.content.strip()
+
+
 
 # --------------------
 # VECTOR SEARCH
@@ -173,52 +186,38 @@ search_limit = st.sidebar.number_input(
     step=5
 )
 
-# --------------------
-# RUN SEARCH BUTTON
-# --------------------
 
+# --------------------
+# RUN SEARCH BUTTON (REPLACED)
+# --------------------
 if st.button("🔍 Run Search"):
-    # Enhance query
-    gpt_prompt, enhanced_query = enhance_query(user_input, model_choice, prompt_template)
-
-    st.subheader("✨ Enhanced Query")
-    st.markdown(f"**{enhanced_query}**")
-
-    # Embeddings
+    # 1) ORIGINAL embedding + search (unchanged)
     original_vector = openai_client.embeddings.create(
         input=[user_input], model=model
     ).data[0].embedding
+    df_original = run_vector_search(original_vector, limit=search_limit)
+    if "cosine_distance" in df_original.columns:
+        df_original["original_rank"] = df_original["cosine_distance"].rank(method="first", ascending=False).astype(int)
+    st.session_state.df_original = df_original
 
+    # 2) Use edited enhanced query if available; otherwise create one
+    if st.session_state.get("enhanced_query", "").strip():
+        enhanced_query = st.session_state.enhanced_query
+    else:
+        _, enhanced_query = enhance_query(user_input, model_choice, prompt_template)
+        st.session_state.enhanced_query = enhanced_query
+
+    # 3) ENHANCED embedding + search
     enhanced_vector = openai_client.embeddings.create(
         input=[enhanced_query], model=model
     ).data[0].embedding
-
-    # Run vector searches with chosen limit
-    df_original = run_vector_search(original_vector, limit=search_limit)
-    df_original["non_enhanced_rank"] = df_original["cosine_distance"].rank(
-        method="first", ascending=False
-    ).astype(int)
-
     df_enhanced = run_vector_search(enhanced_vector, limit=search_limit)
+    if "cosine_distance" in df_enhanced.columns:
+        df_enhanced["enhanced_rank"] = df_enhanced["cosine_distance"].rank(method="first", ascending=False).astype(int)
+    st.session_state.df_enhanced = df_enhanced
 
-    # Merge results
-    df_results = df_enhanced.merge(
-        df_original[["index", "non_enhanced_rank"]],
-        on="index",
-        how="left"
-    )
+    st.success("Searches complete. See the three sections below.")
 
-    # Order once, then store
-    col_order = (
-        ["non_enhanced_rank"]
-        + [c for c in all_columns if c in df_results.columns]
-        + (["cosine_distance"] if "cosine_distance" in df_results.columns else [])
-    )
-    df_results = df_results[col_order]
-
-    # Persist just the dataframe AND the enhanced_query for later reranking
-    st.session_state.df_results = df_results
-    st.session_state.enhanced_query = enhanced_query
 
 # --------------------
 # COLUMN SELECTOR
@@ -242,41 +241,43 @@ for col in all_columns:
 st.session_state.selected_cols = set(selected_cols)
 
 # --------------------
-# OUTPUT (original enhanced ranking)
+# OUTPUT (THREE SEPARATE TABLES)
 # --------------------
-if "df_results" in st.session_state:
-    st.subheader("🔎 Matching Startups (Enhanced Ranking)")
-
-    cols_in_df = st.session_state.df_results.columns
-
+if "df_original" in st.session_state:
+    st.subheader("1) 🔎 Matching Startups — Original Query")
+    cols_in_df = st.session_state.df_original.columns
     display_cols = []
-    if "non_enhanced_rank" in cols_in_df:
-        display_cols.append("non_enhanced_rank")
-
-    display_cols += [
-        c for c in all_columns
-        if c in cols_in_df and c in st.session_state.selected_cols
-    ]
-
+    # prefer to show rank first if present
+    if "original_rank" in cols_in_df:
+        display_cols.append("original_rank")
+    display_cols += [c for c in all_columns if c in cols_in_df and c in st.session_state.selected_cols]
     if "cosine_distance" in cols_in_df:
         display_cols.append("cosine_distance")
+    st.dataframe(st.session_state.df_original[display_cols], use_container_width=True)
 
-    st.dataframe(st.session_state.df_results[display_cols], use_container_width=True)
-else:
-    st.info("Click **Run Search** to see results.")
+if "df_enhanced" in st.session_state:
+    st.subheader("2) ✨ Matching Startups — Enhanced Query")
+    cols_in_df = st.session_state.df_enhanced.columns
+    display_cols = []
+    if "enhanced_rank" in cols_in_df:
+        display_cols.append("enhanced_rank")
+    display_cols += [c for c in all_columns if c in cols_in_df and c in st.session_state.selected_cols]
+    if "cosine_distance" in cols_in_df:
+        display_cols.append("cosine_distance")
+    st.dataframe(st.session_state.df_enhanced[display_cols], use_container_width=True)
+
 
 # ====================================================================
-# 📑 RERANK BY DESCRIPTION (NEW)
+# 📑 RERANK BY DESCRIPTION — use ORIGINAL results (and original thesis)
 # ====================================================================
-if "df_results" in st.session_state:
+if "df_original" in st.session_state:
     st.markdown("---")
-    st.subheader("📑 Rerank by Description")
+    st.subheader("3) 🧠 Rerank by Description (based on ORIGINAL Results)")
 
-    # Strict, non-generalizing default prompt
     default_rerank_prompt = f"""Rerank the following startups STRICTLY by how well their Description matches this investment thesis:
 
 THESIS:
-{st.session_state.get('enhanced_query', user_input)}
+{user_input}
 
 IMPORTANT RULES:
 - Do NOT generalize or broaden the scope beyond the thesis wording.
@@ -300,19 +301,16 @@ INPUT ITEMS FORMAT:
 
     # Helper: extract JSON robustly from model output
     def _extract_json_object(text: str):
-        # Try direct parse
         try:
             return json.loads(text)
         except Exception:
             pass
-        # Try fenced code blocks
         code_block = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text, re.IGNORECASE)
         if code_block:
             try:
                 return json.loads(code_block.group(1))
             except Exception:
                 pass
-        # Try first {...} blob
         first_obj = re.search(r"(\{[\s\S]*\})", text)
         if first_obj:
             try:
@@ -321,10 +319,7 @@ INPUT ITEMS FORMAT:
                 pass
         raise ValueError("Could not parse JSON from model response.")
 
-    # Build items we send to the model
     def _build_items_for_model(df: pd.DataFrame):
-        # Use current display order (enhanced ranking) and include a stable tie-breaker current_rank
-        # current_rank is the row position (1-based) in the displayed df
         items = []
         for pos, row in enumerate(df.itertuples(index=False), start=1):
             idx = getattr(row, "index") if "index" in df.columns else None
@@ -338,11 +333,10 @@ INPUT ITEMS FORMAT:
             })
         return items
 
-    # Do the rerank
     def rerank_by_description(df: pd.DataFrame, thesis: str, prompt_text: str, model_name: str) -> pd.DataFrame:
         items = _build_items_for_model(df)
-
         user_msg = prompt_text + "\n\nITEMS:\n" + json.dumps(items, ensure_ascii=False)
+
         response = openai_client.chat.completions.create(
             model=model_name,
             messages=[
@@ -357,58 +351,45 @@ INPUT ITEMS FORMAT:
             raise ValueError("Model response missing a valid 'order' list.")
 
         proposed_order = [int(x) for x in parsed["order"]]
-
-        # Validate: same set and length
         original_ids = [int(i["index"]) for i in items]
-        if len(proposed_order) != len(original_ids):
-            raise ValueError("Order length mismatch.")
-        if set(proposed_order) != set(original_ids):
-            # Be forgiving: filter to intersection, then append any missing by current order
+
+        # Validate/fix order
+        if len(proposed_order) != len(original_ids) or set(proposed_order) != set(original_ids):
             intersection = [i for i in proposed_order if i in set(original_ids)]
             missing = [i for i in original_ids if i not in set(intersection)]
             proposed_order = intersection + missing
 
-        # Reindex dataframe by 'index' and reorder
         if "index" not in df.columns:
             raise ValueError("Dataframe missing 'index' column required for reranking.")
 
-        df_reordered = (
-            df.set_index("index")
-              .loc[proposed_order]
-              .reset_index()
-        )
+        df_reordered = df.set_index("index").loc[proposed_order].reset_index()
         return df_reordered
 
-    # Button to run the rerank
-    if st.button("🧠 Rerank by Description"):
+    if st.button("🏁 Run Rerank (Based on the not enhanced results)"):
         try:
-            base_df = st.session_state.df_results.copy()
-            thesis_str = st.session_state.get("enhanced_query", user_input)
-
+            base_df = st.session_state.df_original.copy()
+            thesis_str = user_input  # <- use the ORIGINAL thesis
             reranked = rerank_by_description(
                 df=base_df,
                 thesis=thesis_str,
                 prompt_text=rerank_prompt,
-                model_name=model_choice  # reuse the same radio
+                model_name=model_choice
             )
-
-            # Persist and show
             st.session_state.df_reranked = reranked
 
-            st.success("Reordered by description relevance.")
+            st.success("Reordered by description relevance (original query).")
             cols_in_df = reranked.columns
             display_cols = []
-            if "non_enhanced_rank" in cols_in_df:
-                display_cols.append("non_enhanced_rank")
-            display_cols += [
-                c for c in all_columns
-                if c in cols_in_df and c in st.session_state.selected_cols
-            ]
+            # keep rank columns if present (for context)
+            if "original_rank" in cols_in_df:
+                display_cols.append("original_rank")
+            # show selected columns
+            display_cols += [c for c in all_columns if c in cols_in_df and c in st.session_state.selected_cols]
             if "cosine_distance" in cols_in_df:
                 display_cols.append("cosine_distance")
 
-            st.subheader("🏁 Final Reordered Results (Description-based Rerank)")
             st.dataframe(reranked[display_cols], use_container_width=True)
 
         except Exception as e:
             st.error(f"Reranking failed: {e}")
+
