@@ -3,3 +3,5 @@ st-files-connection
 openai
 gensim
 google-cloud-bigquery==3.27.0
+streamlit-extras
+streamlit-aggrid

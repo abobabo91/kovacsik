@@ -32,10 +32,10 @@ def run_query(query: str):
 
 
 
-def enhance_query(user_query: str, model: str, template: str) -> tuple[str, str]:
+def enhance_query(user_query: str, template: str) -> tuple[str, str]:
     prompt = template.replace("{user_input}", user_query)
     response = openai_client.chat.completions.create(
-        model=model,
+        model="gpt-5-mini",
         messages=[
             {"role": "system", "content": "You are a helpful assistant that sharpens queries for vector search."},
             {"role": "user", "content": prompt}
@@ -100,16 +100,7 @@ user_input = st.text_input("💡 Investment Thesis", placeholder="e.g. AI in hea
 if not user_input:
     st.stop()
 
-# --------------------
-# QUERY ENHANCER
-# --------------------
-st.sidebar.header("🤖 Query Enhancer")
 
-model_choice = st.sidebar.radio(
-    "Choose model for query enhancement:",
-    ["gpt-5-nano", "gpt-5-mini", "gpt-5"],
-    index=1
-)
 
 default_prompt_template = f"""You are an assistant helping to improve search queries for investment thesis matching.
 The user provided this query: "{user_input}"
@@ -132,7 +123,7 @@ prompt_template = st.text_area(
 # BUTTON: Enhance query only (unchanged trigger)
 # --------------------
 if st.button("✨ Create Enhanced Query"):
-    gpt_prompt, enhanced_query = enhance_query(user_input, model_choice, prompt_template)
+    gpt_prompt, enhanced_query = enhance_query(user_input, prompt_template)
     st.session_state.enhanced_query = enhanced_query
 
 # Always show (and allow editing) if we have one
@@ -144,7 +135,6 @@ if "enhanced_query" in st.session_state:
         height=140,
         key="enhanced_query_edit"
     )
-
 
 
 # --------------------
@@ -204,7 +194,7 @@ if st.button("🔍 Run Search"):
     if st.session_state.get("enhanced_query", "").strip():
         enhanced_query = st.session_state.enhanced_query
     else:
-        _, enhanced_query = enhance_query(user_input, model_choice, prompt_template)
+        _, enhanced_query = enhance_query(user_input, prompt_template)
         st.session_state.enhanced_query = enhanced_query
 
     # 3) ENHANCED embedding + search
@@ -265,7 +255,12 @@ if "df_enhanced" in st.session_state:
     if "cosine_distance" in cols_in_df:
         display_cols.append("cosine_distance")
     st.dataframe(st.session_state.df_enhanced[display_cols], use_container_width=True)
-
+    
+    
+    
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode
+import random
+import numpy as np
 
 # ====================================================================
 # 📑 RERANK BY DESCRIPTION — use ORIGINAL results (and original thesis)
@@ -338,7 +333,7 @@ INPUT ITEMS FORMAT:
         user_msg = prompt_text + "\n\nITEMS:\n" + json.dumps(items, ensure_ascii=False)
 
         response = openai_client.chat.completions.create(
-            model=model_name,
+            model='gpt-5',
             messages=[
                 {"role": "system", "content": "You are a precise reranker. Follow the instructions exactly."},
                 {"role": "user", "content": user_msg}
@@ -365,29 +360,104 @@ INPUT ITEMS FORMAT:
         df_reordered = df.set_index("index").loc[proposed_order].reset_index()
         return df_reordered
 
-    if st.button("🏁 Run Rerank (Based on the not enhanced results)"):
+    # --- 1) Compute once on click; store in session_state ---
+    if st.button("🏁 Run Rerank (Based on the enhanced results, using original query)"):
         try:
             with st.spinner("🔄 Reranking startups... please wait"):
                 base_df = st.session_state.df_original.copy()
-                thesis_str = user_input  # or st.session_state.enhanced_query if using enhanced
+                thesis_str = user_input  # or st.session_state.enhanced_query
                 reranked = rerank_by_description(
                     df=base_df,
                     thesis=thesis_str,
                     prompt_text=rerank_prompt,
-                    model_name=model_choice
+                    model_name='gpt-5'
                 )
                 st.session_state.df_reranked = reranked
-    
             st.success("✅ Reordered by description relevance.")
-            cols_in_df = reranked.columns
-            display_cols = []
-            if "original_rank" in cols_in_df:
-                display_cols.append("original_rank")
-            display_cols += [c for c in all_columns if c in cols_in_df and c in st.session_state.selected_cols]
-            if "cosine_distance" in cols_in_df:
-                display_cols.append("cosine_distance")
-    
-            st.dataframe(reranked[display_cols], use_container_width=True)
-    
         except Exception as e:
             st.error(f"Reranking failed: {e}")
+
+    # --- 2) Always render from session_state (survives reruns) ---
+    if "df_reranked" not in st.session_state:
+        st.info("👆 Run Rerank to see results here.")
+        st.stop()
+
+    reranked = st.session_state.df_reranked
+    enhanced = st.session_state.df_enhanced
+    
+    # Build an integer "score" from cosine_distance (lower distance = higher score)
+    if "cosine_distance" in reranked.columns:
+        d = pd.to_numeric(enhanced["cosine_distance"], errors="coerce")
+        reranked = reranked.copy()
+    
+        if d.notna().any():
+            d_min = float(d.min())
+            d_max = float(d.max())
+    
+            # pick a random top score between 95 and 100
+            top_score = random.randint(95, 100)
+            
+            if d_max > d_min:
+                # scale so that min distance -> top_score
+                # others shrink proportionally into [top_score-5, top_score]
+                norm = (d - d_min) / (d_max - d_min)  # max d = 1, min d = 0
+                score = (top_score - 5) + norm * 5
+            else:
+                score = pd.Series(top_score, index=d.index)  # all same distances
+    
+            reranked["score"] = np.rint(score).astype(int)
+    
+    # Recompute df_to_show with "score" instead of "cosine_distance"
+    cols_in_df = reranked.columns
+    display_cols = []
+    if "original_rank" in cols_in_df:
+        display_cols.append("original_rank")
+    
+    display_cols += [
+        c for c in all_columns
+        if c in cols_in_df and c in st.session_state.selected_cols and c != "cosine_distance"
+    ]
+    
+    if "score" in cols_in_df:
+        display_cols.append("score")
+    
+    df_to_show = reranked[display_cols]
+
+
+    # --- 3) AgGrid with "Set Filter" checkboxes (Enterprise) but NO floating row ---
+    st.subheader("📊 Reranked results (AgGrid with checkbox filters)")
+        
+    gb = GridOptionsBuilder.from_dataframe(df_to_show)
+    
+    # Defaults (no floating filters, enterprise on elsewhere in your code)
+    gb.configure_default_column(sortable=True, resizable=True, filter=True, floatingFilter=True)
+    gb.configure_side_bar()
+    gb.configure_grid_options(suppressMenuHide=True)
+    
+    
+           # ---- Set preset width only for Description ----
+    if "Description" in df_to_show.columns:
+        gb.configure_column(
+            "Description",
+            width=520,            # make Description wider
+            suppressSizeToFit=True,
+            wrapText=True,
+            autoHeight=False      # fixed row height is fine
+        )
+    
+    # Build grid options
+    grid_options = gb.build()
+    
+    # Just bump row height globally (everything else stays default)
+    grid_options["rowHeight"] = 36   # default ~25, now a bit taller
+    
+    grid_response = AgGrid(
+        df_to_show,
+        gridOptions=grid_options,
+        data_return_mode=DataReturnMode.FILTERED,
+        update_mode=GridUpdateMode.MODEL_CHANGED,
+        fit_columns_on_grid_load=False,   # don’t overwrite our Description width
+        height=420,
+        enable_enterprise_modules=True,
+        key="aggrid_reranked_table",
+    )
