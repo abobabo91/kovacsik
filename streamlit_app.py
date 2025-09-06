@@ -83,11 +83,11 @@ all_columns = [
     "dealroom_website_domain_full","dealroom_employees_latest","dealroom_client_focus",
     "dealroom_income_streams","dealroom_revenues","dealroom_fundings",
     "dealroom_app_12_months_growth_unique","dealroom_dealroom_signal","dealroom_patents_count",
-    "dealroom_twitter_followers_chart","dealroom_twitter_tweets_chart","index_old","index"
+    "dealroom_twitter_followers_chart","dealroom_twitter_tweets_chart","index_old","index", "Description_merged", "website_main_page"
 ]
 
 default_cols = [
-    "Company_Name","Domain_Name","Founded_Year","Country","Description","Company_Stage"
+    "Company_Name","Domain_Name","Founded_Year","Country","Description_merged","Company_Stage"
 ]
 
 # --------------------
@@ -155,7 +155,7 @@ def run_vector_search(vector, limit=50):
         AND f.embed_index != t.index
     )
     SELECT full_table.*, distances.cosine_distance
-    FROM `ccnr-success.success_new.full_merged` AS full_table
+    FROM `ccnr-success.success_new.full_merged_new` AS full_table
     JOIN distances
       ON full_table.index = distances.index
     ORDER BY cosine_distance DESC
@@ -319,12 +319,12 @@ INPUT ITEMS FORMAT:
         for pos, row in enumerate(df.itertuples(index=False), start=1):
             idx = getattr(row, "index") if "index" in df.columns else None
             name = getattr(row, "Company_Name") if "Company_Name" in df.columns else ""
-            desc = getattr(row, "Description") if "Description" in df.columns else ""
+            desc = getattr(row, "Description_merged") if "Description_merged" in df.columns else ""
             items.append({
                 "index": int(idx) if pd.notna(idx) else pos,
                 "current_rank": pos,
                 "Company_Name": str(name) if pd.notna(name) else "",
-                "Description": str(desc) if pd.notna(desc) else ""
+                "Description_merged": str(desc) if pd.notna(desc) else ""
             })
         return items
 
@@ -436,9 +436,9 @@ INPUT ITEMS FORMAT:
     
     
            # ---- Set preset width only for Description ----
-    if "Description" in df_to_show.columns:
+    if "Description_merged" in df_to_show.columns:
         gb.configure_column(
-            "Description",
+            "Description_merged",
             width=520,            # make Description wider
             suppressSizeToFit=True,
             wrapText=True,
