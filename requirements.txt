@@ -5,3 +5,6 @@ gensim
 google-cloud-bigquery==3.27.0
 streamlit-extras
 streamlit-aggrid
+anthropic==0.66.0
+httpx<0.28
+httpcore==1.*
