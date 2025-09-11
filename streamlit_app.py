@@ -349,9 +349,10 @@ def render_model_table(df: pd.DataFrame, model_label: str, selected_cols: set):
 # SESSION STATE SETUP
 # --------------------
 if "base_results" not in st.session_state:
-    st.session_state.base_results = None  # holds the reranked DataFrame
+    st.session_state.base_results = {"stack": []}
 if "has_run" not in st.session_state:
     st.session_state.has_run = False
+
 
 # ... (your existing code above unchanged) ...
 
@@ -496,7 +497,7 @@ if run:
 
 # ---- Re-render on sidebar changes (if user toggles columns later) ----
 # If we already have results in session_state, reprint them below (keeps UI consistent after interaction)
-if st.session_state.base_results.get("stack"):
+if st.session_state.get("base_results", {}).get("stack")::
     st.markdown("### 🔁 Results (cached)")
     for provider, model_name, df_model, secs in st.session_state.base_results["stack"]:
         st.caption(f"{provider} · **{model_name}** — rerank time: {secs:.2f}s")
