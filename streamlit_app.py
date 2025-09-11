@@ -116,7 +116,11 @@ st.markdown(
 # Centered input
 center_cols = st.columns([1,2,1])
 with center_cols[1]:
-    user_input = st.text_input("", placeholder="e.g. AI in healthcare")
+    user_input = st.text_input(
+        "Investment thesis",   # vagy valami rövid, de nem üres címke
+        placeholder="e.g. AI in healthcare",
+        label_visibility="collapsed"  # így nem látszik a label, de nem lesz üres
+    )
 
 if not user_input:
     st.stop()
@@ -497,4 +501,3 @@ if st.session_state.base_results.get("stack"):
     for provider, model_name, df_model, secs in st.session_state.base_results["stack"]:
         st.caption(f"{provider} · **{model_name}** — rerank time: {secs:.2f}s")
         render_model_table(df_model, f"{provider} · {model_name}", st.session_state.selected_cols)
-odel_table(df_model, f"{provider} · {model_name}", st.session_state.selected_cols)
