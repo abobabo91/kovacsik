@@ -326,11 +326,12 @@ def render_model_table(df: pd.DataFrame, model_label: str, selected_cols: set):
     if "Description_merged" in df_to_show.columns:
         gb.configure_column(
             "Description_merged",
-            width=520,
-            suppressSizeToFit=True,
+            width=420,
+            tooltipField="Description_merged",
             wrapText=True,
-            autoHeight=False
+            autoHeight=False,
         )
+
     grid_options = gb.build()
     grid_options["rowHeight"] = 36
 
