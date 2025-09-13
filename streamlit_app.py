@@ -322,13 +322,19 @@ def render_model_table(df: pd.DataFrame, model_label: str, selected_cols: set):
     gb = GridOptionsBuilder.from_dataframe(df_to_show)
     gb.configure_default_column(sortable=True, resizable=True, filter=True, floatingFilter=True)
     gb.configure_side_bar()
-    gb.configure_grid_options(suppressMenuHide=True)
+    gb.configure_grid_options(
+        suppressMenuHide=True,
+        enableRangeSelection=True,        # drag across cells, copy with Ctrl+C
+        enableCellTextSelection=False,     # allow text highlight & copy
+        copyHeadersToClipboard=True,      # include headers when copying
+        rowSelection="multiple"           # allow selecting multiple rows
+    )
     if "Description_merged" in df_to_show.columns:
         gb.configure_column(
             "Description_merged",
             width=420,
             tooltipField="Description_merged",
-            wrapText=True,
+            wrapText=False,
             autoHeight=False,
         )
 
@@ -342,6 +348,7 @@ def render_model_table(df: pd.DataFrame, model_label: str, selected_cols: set):
         update_mode=GridUpdateMode.MODEL_CHANGED,
         fit_columns_on_grid_load=False,
         enable_enterprise_modules=True,
+        allow_unsafe_jscode=True,   # needed for some copy/paste features
         key=f"aggrid_{model_label}",
     )
 
