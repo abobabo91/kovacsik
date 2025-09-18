@@ -337,6 +337,8 @@ INPUT ITEMS FORMAT:
 ITEMS:
 {items_json}
 """
+
+
 def rerank_with_openai_model(df: pd.DataFrame, thesis: str, model_name: str) -> Dict[str, any]:
     items = _build_items_for_model(df)
     prompt = _make_rerank_prompt(thesis, json.dumps(items, ensure_ascii=False))
