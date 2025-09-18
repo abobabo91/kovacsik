@@ -54,6 +54,84 @@ def enhance_query(user_query: str, template: str) -> tuple[str, str]:
     )
     return prompt, response.choices[0].message.content.strip()
 
+
+FOUNDED_YEARS = [
+    2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017,
+    2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025
+]
+
+COMPANY_STAGES = [
+    "Early Stage",
+    "Seed",
+    "Series A",
+    "Series B",
+    "Series C",
+    "Series D",
+    "Series E",
+    "Series F",
+    "Series G",
+    "Series H",
+    "Late Stage",
+    "Funding Raised",   # generic / ambiguous
+    "Acqui-Hired",      # exit path
+    "Acquired",         # exit path
+    "Public",           # IPO stage
+    "Deadpooled"        # shut down
+]
+
+
+COUNTRIES = sorted(list({
+    "Italy","France","China","United States","United Kingdom","Canada","Germany","Sweden",
+    "Colombia","Switzerland","Kazakhstan","India","Saudi Arabia","Australia","Netherlands",
+    "Israel","Spain","Cyprus","South Korea","Belgium","Ireland","Portugal","Brazil","Egypt",
+    "Japan","Cayman Islands","South Africa","Indonesia","Estonia","Nigeria","Puerto Rico",
+    "Denmark","Romania","Finland","Kenya","Czech Republic","Singapore","Taiwan","Chile",
+    "Poland","Austria","Malaysia","Rwanda","Ivory Coast","Republic Of Congo","Norway",
+    "Thailand","Kuwait","Philippines","Tunisia","Greece","Pakistan","Morocco","Turkey",
+    "Iceland","New Zealand","Costa Rica","Venezuela","Slovenia","Croatia","Ethiopia",
+    "Jordan","Argentina","Russia","Bangladesh","Luxembourg","Bulgaria","Mexico","Cameroon",
+    "Qatar","Lithuania","Uruguay","Vietnam","Hungary","Lebanon","Slovakia","Peru","Moldova",
+    "Latvia","Ghana","Uganda","Ukraine","Oman","Zambia","Anguilla","Honduras","Bahrain",
+    "Zimbabwe","Senegal","Serbia","Tanzania","Guernsey","Mauritius","Ecuador","Malta",
+    "Panama","Myanmar","Iran","Belarus","American Samoa","Palestine","Sri Lanka",
+    "Channel Islands","Montenegro","Bermuda","Angola","Gibraltar","Jamaica","Azerbaijan",
+    "Georgia","Bahamas","Guatemala","North Macedonia","Scotland","Bosnia And Herzegovina",
+    "Iraq","Congo"
+}))
+
+
+continent_map = {
+    "Europe": [
+        "Italy","France","United Kingdom","Germany","Sweden","Switzerland","Netherlands",
+        "Spain","Cyprus","Belgium","Ireland","Portugal","Estonia","Denmark","Romania",
+        "Finland","Czech Republic","Poland","Norway","Lithuania","Slovakia","Hungary",
+        "Moldova","Latvia","Slovenia","Croatia","Serbia","Bulgaria","Luxembourg","Ukraine",
+        "Belarus","Russia","Iceland","Greece","Turkey","Montenegro","North Macedonia",
+        "Scotland","Bosnia And Herzegovina"
+    ],
+    "Asia": [
+        "China","India","Israel","South Korea","Japan","Singapore","Taiwan","Malaysia",
+        "Indonesia","Thailand","Philippines","Vietnam","Kazakhstan","Saudi Arabia",
+        "United Arab Emirates","Qatar","Oman","Kuwait","Pakistan","Bangladesh","Lebanon",
+        "Jordan","Iran","Palestine","Sri Lanka","Georgia","Azerbaijan"
+    ],
+    "Africa": [
+        "South Africa","Nigeria","Kenya","Rwanda","Egypt","Morocco","Tunisia","Ivory Coast",
+        "Ghana","Uganda","Ethiopia","Republic Of Congo","Zimbabwe","Senegal","Tanzania",
+        "Angola","Cameroon","Congo"
+    ],
+    "North America": [
+        "United States","Canada","Mexico","Puerto Rico","Costa Rica","Panama","Jamaica",
+        "Honduras","Guatemala","Bermuda","Bahamas","Anguilla"
+    ],
+    "South America": [
+        "Brazil","Argentina","Chile","Colombia","Uruguay","Peru","Venezuela","Ecuador"
+    ],
+    "Oceania": ["Australia","New Zealand"],
+}
+
+
+
 # --------------------
 # COLUMN ORDER LIST
 # --------------------
@@ -151,7 +229,29 @@ if not user_input:
 # --------------------
 # CORE FUNCTIONS
 # --------------------
-def run_vector_search(vector, limit=50):
+def run_vector_search(vector, limit=50, filters=None):
+    where_clauses = []
+    if filters:
+        if filters.get("year"):
+            years = ",".join(str(y) for y in filters["year"])
+            where_clauses.append(f"full_table.Founded_Year IN ({years})")
+
+        if filters.get("stage"):
+            stages = ",".join(f"'{s}'" for s in filters["stage"])
+            where_clauses.append(f"full_table.Company_Stage IN ({stages})")
+
+        if filters.get("country"):
+            parts = []
+            for c in filters["country"]:
+                safe_c = c.replace("'", "''")  # escape quotes
+                parts.append(f"full_table.Country LIKE '%{safe_c}%'")
+            countries = " OR ".join(parts)
+            where_clauses.append(f"({countries})")
+
+    where_sql = ""
+    if where_clauses:
+        where_sql = "WHERE " + " AND ".join(where_clauses)
+
     query = f"""
     WITH first_row AS (
       SELECT {vector} AS vector, -1 AS embed_index
@@ -169,10 +269,13 @@ def run_vector_search(vector, limit=50):
     FROM `ccnr-success.success_new.full_merged_new` AS full_table
     JOIN distances
       ON full_table.index = distances.index
+    {where_sql}
     ORDER BY cosine_distance DESC
     LIMIT {limit};
     """
     return pd.DataFrame(run_query(query))
+
+
 
 def _extract_json_object(text: str):
     try:
@@ -328,9 +431,14 @@ def render_model_table(df: pd.DataFrame, model_label: str, selected_cols: set):
         gb.configure_column(
             "Description",
             width=420,
-            tooltipField="Description",
-            wrapText=False,
-            autoHeight=False,
+            tooltipField="Description",  # hover still shows full text
+            cellStyle={
+                "whiteSpace": "normal",   # wrap words
+                "overflow": "auto",       # scroll if content too long
+                "textOverflow": "ellipsis",
+                "lineHeight": "1.5em",    # line height
+                "maxHeight": "3em"      # ~2 lines
+            }
         )
 
     grid_options = gb.build()
@@ -359,12 +467,7 @@ if "has_run" not in st.session_state:
 
 # ... (your existing code above unchanged) ...
 
-# --------------------
-# SINGLE ACTION BUTTON -> does everything, shows only final table
-# --------------------
-cols = st.columns([2,2,1])  # left: 1 part, middle: 2 parts, right: 1 part
-with cols[1]:
-    run = st.button("🔍 Find & Rerank Startups")
+
 
 # Replace the old sidebar code with this
 with st.expander("⚙️ Settings"):
@@ -398,7 +501,80 @@ with st.expander("⚙️ Settings"):
 
     st.session_state.selected_cols = set(selected_cols)
 
+with st.expander("🔍 Pre-Filters"):
+    if "filters" not in st.session_state:
+        st.session_state.filters = {"year": [], "stage": [], "country": []}
 
+    # ---- Founded Year checkboxes ----
+    st.markdown("**Founded Year**")
+    year_cols = st.columns(16)  # spread across 4 columns
+    selected_years = []
+    for i, y in enumerate(FOUNDED_YEARS):
+        with year_cols[i % 16]:
+            if st.checkbox(str(y), value=(y in st.session_state.filters["year"]), key=f"year_{y}"):
+                selected_years.append(y)
+
+    # ---- Company Stage checkboxes ----
+    st.markdown("**Company Stage**")
+    stage_cols = st.columns(10)
+    selected_stages = []
+    for i, s in enumerate(COMPANY_STAGES):
+        with stage_cols[i % 10]:
+            if st.checkbox(s, value=(s in st.session_state.filters["stage"]), key=f"stage_{s}"):
+                selected_stages.append(s)
+        
+    # ---- Country + Continent checkboxes (with proper uncheck) ----
+    st.markdown("**Country / Continent**")
+    
+    cc_cols = st.columns(10)
+    
+    # 1) Read continent toggles first
+    continents = sorted(continent_map.keys())
+    cont_checked = {}
+    for i, cont in enumerate(continents):
+        with cc_cols[i % 10]:
+            cont_checked[cont] = st.checkbox(f"🌍 {cont}", key=f"cont_{cont}")
+    
+    # 2) Start from previously saved selection (so user manual picks persist)
+    prev_selected = set(st.session_state.get("filters", {}).get("country", []))
+    
+    # 3) Apply continent toggles to derive the target set for this run
+    target_selected = set(prev_selected)
+    for cont, is_on in cont_checked.items():
+        members = set(continent_map[cont])
+        if is_on:
+            target_selected |= members     # add all if continent is checked
+        else:
+            target_selected -= members     # remove all if continent is unchecked
+    
+    # 4) Push the computed selection into session_state BEFORE rendering country boxes
+    for c in COUNTRIES:
+        st.session_state[f"country_{c}"] = (c in target_selected)
+    
+    # 5) Render country checkboxes (reflecting the computed state)
+    selected_countries = []
+    for i, c in enumerate(COUNTRIES):
+        with cc_cols[(i + len(continents)) % 10]:
+            # value is taken from st.session_state[country_{c}] we set above
+            if st.checkbox(c, key=f"country_{c}"):
+                selected_countries.append(c)
+    
+
+    # ---- Save selections ----
+    st.session_state.filters = {
+        "year": selected_years,
+        "stage": selected_stages,
+        "country": selected_countries,
+    }
+
+
+
+# --------------------
+# SINGLE ACTION BUTTON -> does everything, shows only final table
+# --------------------
+cols = st.columns([2,2,1])  # left: 1 part, middle: 2 parts, right: 1 part
+with cols[1]:
+    run = st.button("🔍 Find & Rerank Startups")
 
 def build_display_df(base_df: pd.DataFrame, selected_cols: set) -> pd.DataFrame:
     cols_in_df = base_df.columns
@@ -457,7 +633,12 @@ if run:
 
         # --- search once ---
         st.text('Searching database')
-        df_enhanced = run_vector_search(enhanced_vector, limit=search_limit)
+        df_enhanced = run_vector_search(
+            enhanced_vector,
+            limit=search_limit,
+            filters=st.session_state.get("filters", None)
+        )
+
 
         # --- optional score from cosine distances (computed from df_enhanced) ---
         score_series = None
