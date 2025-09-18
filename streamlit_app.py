@@ -96,9 +96,30 @@ all_columns = [
     "dealroom_twitter_followers_chart","dealroom_twitter_tweets_chart","index_old","index", "Description_merged", "website_main_page"
 ]
 
-default_cols = [
-    "Company_Name","Domain_Name","Founded_Year","Country","Description_merged","Company_Stage"
-]
+column_rules = {
+    "Company_Name": (1, "Name"),
+    "Domain_Name": (1, "Domain"),
+    "Founded_Year": (1, "Year Founded"),
+    "Country": (1, "Country"),
+    "Company_Stage": (1, "Stage"),
+    "Description_merged": (1, "Description"),
+    "score": (1, "Match Score"),
+    "Latest_Funded_Amount_USD_": (2, "Latest Funding Amount"),
+    "Latest_Funded_Date": (2, "Latest Funding Date"),
+    "Company_Emails": (2, "Company Emails"),
+    "Company_Phone_Numbers": (2, "Company Phone Numbers"),
+    "LinkedIn": (2, "LinkedIn"),
+    "Twitter": (2, "X (Twitter)"),
+    "Facebook": (2, "Facebook"),
+    "Blog_Url": (2, "Blog"),
+    "Continent": (2, "Continent"),
+    "Region": (2, "Region"),
+    "dealroom_client_focus": (2, "Customer Focus"),
+    "dealroom_patents_count": (2, "Number of Patents"),
+}
+
+default_cols = [col for col, (score, _) in column_rules.items() if score == 1]
+
 
 # --------------------
 # UI (only intro + input + single button; everything else background)
@@ -125,33 +146,7 @@ with center_cols[1]:
 if not user_input:
     st.stop()
 
-# Sidebar options that affect ONLY final output
-st.sidebar.header("⚙️ Display Options")
-search_limit = st.sidebar.number_input(
-    "Max results to fetch",
-    min_value=5,
-    max_value=200,
-    value=20,
-    step=5
-)
 
-if "selected_cols" not in st.session_state:
-    st.session_state.selected_cols = set(default_cols)
-
-selected_cols = []
-col1, col2 = st.sidebar.columns(2)
-with col1:
-    if st.button("✅ Select All"):
-        st.session_state.selected_cols = set(all_columns)
-with col2:
-    if st.button("❌ Clear All"):
-        st.session_state.selected_cols = set()
-
-for col in all_columns:
-    checked = st.sidebar.checkbox(col, value=(col in st.session_state.selected_cols))
-    if checked:
-        selected_cols.append(col)
-st.session_state.selected_cols = set(selected_cols)
 
 # --------------------
 # CORE FUNCTIONS
@@ -329,11 +324,11 @@ def render_model_table(df: pd.DataFrame, model_label: str, selected_cols: set):
         copyHeadersToClipboard=True,      # include headers when copying
         rowSelection="multiple"           # allow selecting multiple rows
     )
-    if "Description_merged" in df_to_show.columns:
+    if "Description" in df_to_show.columns:
         gb.configure_column(
-            "Description_merged",
+            "Description",
             width=420,
-            tooltipField="Description_merged",
+            tooltipField="Description",
             wrapText=False,
             autoHeight=False,
         )
@@ -367,24 +362,75 @@ if "has_run" not in st.session_state:
 # --------------------
 # SINGLE ACTION BUTTON -> does everything, shows only final table
 # --------------------
-run = st.button("🔍 Find & Rerank Startups")
+cols = st.columns([2,2,1])  # left: 1 part, middle: 2 parts, right: 1 part
+with cols[1]:
+    run = st.button("🔍 Find & Rerank Startups")
+
+# Replace the old sidebar code with this
+with st.expander("⚙️ Settings"):
+    search_limit = st.number_input(
+        "Max results to fetch",
+        min_value=5,
+        max_value=200,
+        value=20,
+        step=5
+    )
+
+    if "selected_cols" not in st.session_state:
+        st.session_state.selected_cols = set(default_cols)
+
+    selected_cols = []
+
+    # Create 6 columns for the checkboxes
+    cols = st.columns(6)
+
+    for i, (col, (score, new_name)) in enumerate(column_rules.items()):
+        label = new_name if new_name else col
+        # Decide which column this checkbox should go into
+        with cols[i % 6]:
+            checked = st.checkbox(
+                label,
+                value=(col in st.session_state.selected_cols),
+                key=f"chk_{col}"
+            )
+            if checked:
+                selected_cols.append(col)
+
+    st.session_state.selected_cols = set(selected_cols)
+
+
 
 def build_display_df(base_df: pd.DataFrame, selected_cols: set) -> pd.DataFrame:
     cols_in_df = base_df.columns
     display_cols = []
+
+    # If original_rank exists, always keep it first
     if "original_rank" in cols_in_df:
         display_cols.append("original_rank")
-    display_cols += [
-        c for c in all_columns
-        if c in cols_in_df and c in selected_cols and c != "cosine_distance"
-    ]
-    if "score" in cols_in_df:
+
+    # Keep only those in selected_cols, in the order of column_rules
+    for col, (score, new_name) in column_rules.items():
+        if col in cols_in_df and col in selected_cols:
+            display_cols.append(col)
+
+    # Always include score if present
+    if "score" in cols_in_df and "score" not in display_cols:
         display_cols.append("score")
-    # if user selected none, fall back to some sane defaults
+
+
+    # Fallback if nothing selected
     if not display_cols:
-        fallback = [c for c in default_cols if c in cols_in_df]
+        fallback = [c for c, (score, _) in column_rules.items() if score == 1 and c in cols_in_df]
         display_cols = fallback or list(cols_in_df)[:10]
-    return base_df[display_cols]
+
+    # Slice dataframe
+    df_out = base_df[display_cols].copy()
+
+    # Apply renaming (only those with a friendly name defined)
+    rename_map = {col: new for col, (_, new) in column_rules.items() if new}
+    df_out.rename(columns=rename_map, inplace=True)
+
+    return df_out
 
 
 if run:

@@ -1,6 +1,5 @@
 * the current version feels a bit mixed between startup and thesis. if we wanna give this to target customers soon we should only include value-add startup-focused stuff. i.e. pick which columns are useful, rename them, etc.
 
-* make sure every company has a description, there are some gaps now where it's missing on tracxn
 
 
 filteringet a legelejere
@@ -8,3 +7,5 @@ filteringet a legelejere
 scoring jol
 
 aminek nem megy a honlapja deadpoolozni
+
+saját szektorokat csinalni
